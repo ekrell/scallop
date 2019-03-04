@@ -1,0 +1,26 @@
+logbook:
+    # Global weight. Significant of targets compared to other params
+    tWeight: 10
+    # Entities
+    entities:
+        - "T1"
+        - "T2"
+        - "T3"
+        - "T4"
+        - "T5"
+    # Weights on entity interest
+    weights:
+        - 1
+        - 1
+        - 1
+        - 1
+        - 1
+    # Color code for the entities.
+    # Uses the Red RGB value. Entities must have unique Red value. 
+    # '255' already set aside as 'None' entity.
+    colorcodes:
+        0: 1
+        65: 3
+        225: 4
+        224: 2
+        129: 5

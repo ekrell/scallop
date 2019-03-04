@@ -21,8 +21,21 @@ For example, _scallop_ may be dealing with subsurface seagrasses imaged by an un
 
 ## Input Data (And how to generate it)
 
+### Inputs
+
+- **Entity Book** (yaml): Describes entites, color codes, weights.  
+    - Example: test/data/entityBook.yaml
+- **Entity Map(s)** (png): Color-coded images where pixel color indicated entity presence. 
+    - Example: test/data/dataGen/experiments/results/EXP_R1_S1/
 
 ## Reward Assignment (assignReward.py)
+Using the **Entity Book** and a history of entities (ordered set of **Entity Maps**), 
+assigns reward to each cell in the discrete region grid. 
+
+### Outputs
+- **Analyzed Grid(s)** (geotiff): Multi-band rasters of stat-based rewards for cells in region.
+    - Each entity has own **Analyzed Grid** and each band corresponds to a stat, such as entity density, speed, or acceleration.
+    - Example: 
 
 
 ## Target Region Selection (selectRegions.py)
