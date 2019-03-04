@@ -19,8 +19,7 @@ For example, _scallop_ may be dealing with subsurface seagrasses imaged by an un
 - Select subregion polygons to be the top n targets.
 
 
-## Input Data
-### And how to generate it
+## Input Data (And how to generate it)
 
 
 ## Reward Assignment (assignReward.py)
