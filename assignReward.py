@@ -8,81 +8,98 @@ reward within each subgrid region.
 from osgeo import gdal
 import os
 import sys
+import pickle
+import numpy as np
+import pandas as pd
+from path import Path
+import re
+from statistics import median
+import entityFitness
+from PIL import Image
 
 def parseOption ():
 	from optparse import OptionParser
 	parser = OptionParser ()
+        # Number of subgrids to divide region into
+        parser.add_option('-n', "--num_subgrids", dest="num_subgrids",
+                help = "Number of subgrids to divide region", default = 100)
+        # Path to entity book
+        parser.add_option('-e', "--entitybook", dest="entitybook",
+                help = "Path to entity book (YaML)")
         # The geotiff that represents the region under study.
         # Used to tie correct coordinates, etc to entities.
-	parser.add_option ('-r', "--region", dest='regionFile',
+	parser.add_option('-r', "--region", dest='regionFile',
 		help = "Base region geotiff", metavar='REGION_FILE')
+        parser.add_option ('-o', "--outdirectory", dest='outdirectory',
+                help = "Output directory")
+        parser.add_option ('-l', "--outprefix", dest="outprefix",
+                help = "Prefix for naming output files")
         # Directory where images representing a single state of entities are stored.
 	parser.add_option ('-d', "--directory", dest='directory',
 		help = "Directory of image iterations", metavar='DIR')
+        # Prefix to select image iterations in directory
+        parser.add_option ('-p', "--prefix", dest='prefix',
+                help = "Prefix to select image iterations in directory",
+                metavar='DIR', default = "")
         # Directory where results of this program are stored, so that subsequent executions can do less work.
 	parser.add_option ('-c', "--cachedirectory", dest='cachedirectory', default = "",
 		help = "Use this directory where existing subgrids are stored", metavar='CACHE')
 	return parser.parse_args ()
 
-def initMapByImage (filename):
+def initMapByImage (filename, entityBook, nSubgrids):
 	from PIL import Image
 	im = Image.open (filename)
 	im = im.convert ('RGB')
 	grid = np.empty (shape = [im.size[0], im.size[1]])
-	points = [[], [], [], []]
+	points = [[] for e in range(len(entityBook["entities"]))]
 
 	for row in range (im.size[0]):
 		for col in range (im.size[1]):
 			p = im.getpixel ( (row, col) )
+                        eidx = entityBook["colorcodes"][p[0]]
+                        grid[row][col] = eidx
+                        points[eidx].append([row, col])
 
-			if (p[0] == 0): # green
-				grid[row][col] = 1
-				points[0].append ( [row, col] )
-			elif (p[0] == 129): # purple
-				grid[row][col] = 2
-				points[1].append ( [row, col] )
-			elif (p[0] == 65): # blue
-				grid[row][col] = 3
-				points[2].append ( [row, col] )
-			elif (p[0] == 225): # red
-				grid[row][col] = 4
-				points[3].append ( [row, col] )
-			else:
-				grid[row][col] = 0
-	# RESIZE GRID with padding
-	# HARD-CODED
-	grid = np.pad(grid, [(0, 0), (0, 7)], mode='constant', constant_values=0)
-	print (grid.shape)
-	return grid, points
 
-def drawGrids (filename, nSubgrids = 100):
-	import pylab as plt
-	from PIL import Image, ImageDraw
+        rowpadding = 0
+        colpadding = 0
+        while ((im.size[0] + rowpadding) % nSubgrids != 0):
+            rowpadding = rowpadding + 1
+        while ((im.size[1] + colpadding) % nSubgrids != 0):
+            colpadding = colpadding + 1
 
-	# Load image
-	img = Image.open(filename)
-	width, height = img.size
+	grid = np.pad(grid, [(0, rowpadding), (0, colpadding)],
+                      mode='constant', constant_values=0)
+	return grid, points, rowpadding, colpadding
 
-	# Draw lines
-	draw = ImageDraw.Draw (img)
-	y_start = 0
-	y_end = img.height
-	step_size = int (img.width / nSubgrids)
-
-	for x in range (0, img.width, step_size):
-		line = ((x, y_start), (x, y_end))
-		draw.line (line, fill = 129)
-
-	x_start = 0
-	x_end = img.width
-
-	for y in range (0, img.height, step_size):
-		line = ((x_start, y), (x_end, y))
-		draw.line (line, fill = 129)
-
-	img.save ('grid.png')
-
-	del draw
+##def drawGrids (filename, nSubgrids = 10):
+##	import pylab as plt
+##	from PIL import Image, ImageDraw
+##
+##	# Load image
+##	img = Image.open(filename)
+##	width, height = img.size
+##
+##	# Draw lines
+##	draw = ImageDraw.Draw (img)
+##	y_start = 0
+##	y_end = img.height
+##	step_size = int (img.width / nSubgrids)
+##
+##	for x in range (0, img.width, step_size):
+##		line = ((x, y_start), (x, y_end))
+##		draw.line (line, fill = 129)
+##
+##	x_start = 0
+##	x_end = img.width
+##
+##	for y in range (0, img.height, step_size):
+##		line = ((x_start, y), (x_end, y))
+##		draw.line (line, fill = 129)
+##
+##	img.save ('grid.png')
+##
+##	del draw
 
 
 
@@ -137,28 +154,31 @@ def unblockshaped(arr, h, w):
                .swapaxes(1,2)
                .reshape(h, w))
 
-def iteration (filename, outTag, nSubgrids, nEntities):
+def iteration (filename, outTag, nSubgrids, nEntities, entityBook):
 	# Show the grid lines
-	drawGrids (filename)
+	# drawGrids (filename, pow(nSubgrids, 0.5))
+
 
 	# Get image as a grid
 	# Where numbers refer to entity presence
 	# and '0' means absence of any entity
-	(grid, points) = initMapByImage (filename)
+	(grid, points, rowpadding, colpadding) = \
+                initMapByImage (filename, entityBook, nSubgrids)
 
-	nYgrids = grid.shape[0] / 100
-	nXgrids = grid.shape[1] / 100
+	nYgrids = grid.shape[0] / nSubgrids
+	nXgrids = grid.shape[1] / nSubgrids
 
 	# Allocate a grid to track the subgrids
 	subtable = np.empty (shape = [nYgrids, nXgrids])
 	subtable = np.array ([[dict() for x in range (0, nXgrids)] for y in range (0, nYgrids)])
 
 	# Split into subgrids
-	gridSplit = blockshaped (grid, 100, 100)
+	gridSplit = blockshaped (grid, nSubgrids, nSubgrids)
 	gridStats = []
 
 	for g in gridSplit:
-		gridStats.append (getRegionStats (g, None, 4))
+		gridStats.append (getRegionStats (g, None,
+                    len(entityBook["entities"])))
 
 	count = 0
 	for row in range (0, nYgrids):
@@ -171,16 +191,17 @@ def iteration (filename, outTag, nSubgrids, nEntities):
 	return subtable
 
 
-def getSampleImageFile(directory):
+def getSampleImageFile(directory, prefix):
 	p = Path(directory)
-	imageFile = p.files(pattern = 'iter_*.png')[0]
+	imageFile = p.files(prefix + '*.png')[0]
 	return imageFile
 
 
-def getSubgridsByDirectory(directory, nSubgrids, nEntities):
+def getSubgridsByDirectory(directory, prefix, outdirectory, outprefix,
+                           nSubgrids, nEntities, entityBook):
 	p = Path(directory)
 	images = []
-	for f in p.files(pattern='iter_*.png'):
+	for f in p.files(prefix + '*.png'):
 		images.append (f)
 
 	subtables = []
@@ -189,17 +210,19 @@ def getSubgridsByDirectory(directory, nSubgrids, nEntities):
 		m = re.search('[0-9]*.png', i)
 		m = re.search('[0-9]*', m.group ())
 		idx = int(m.group ())
-		subtables.append(iteration(i, idx, nSubgrids, nEntities))
+		subtables.append(iteration(i, idx, nSubgrids, nEntities, entityBook))
 
 		# Save the table of subgrids as a python object
-		pickle.dump (subtables[len (subtables) - 1], open ("gridstats_" + str (idx) + ".pickle", "wb"))
+		pickle.dump (subtables[len (subtables) - 1],
+                        open (outdirectory + "/" + outprefix + "_gridstats_" \
+                                + str (idx) + ".pickle", "wb"))
 
 	return images, subtables
 
-def loadSubgridsByDirectory(directory):
+def loadSubgridsByDirectory(directory, outprefix):
 	p = Path (directory)
 	pickles = []
-	for f in p.files (pattern='gridstats*.pickle'):
+	for f in p.files (pattern= outprefix + '_gridstats_*.pickle'):
 		pickles.append (f)
 
 	nTables = len (pickles)
@@ -264,11 +287,12 @@ def analyzeSequence (subtables, nEntities):
 		'acc'    : None,
  }
 
+
 	# Load the analysis grid with data points
 	for st in subtables:
 		for row in range (0, nYgrids):
 			for col in range (0, nXgrids):
-				for e in range (0, nEntities):
+				for e in range (nEntities):
 					results[row][col][e]['densities'].append (st[row][col]['stat']['density'][e])
 
 	# Analyze those data points
@@ -312,24 +336,18 @@ def analyzeSequence (subtables, nEntities):
 	return results
 
 
-def getGrid2img(subtables, results, imgfile):
+def getGrid2img(subtables, results, imgfile, rowpadding, colpadding):
 
 	# Creates a mapping between the original 2D map
 	# and the subgrids.
 	# The value of the map's cell indexes the
 	# corresponding subgrid result
 
-	from PIL import Image
-
 	img = Image.open (imgfile)
-        h = img.size[0]
-	w = img.size[1]
-
-	h = 1000                    # HARD-CODED
-	w = 1100                    # HARD-CODED
+        h = img.size[0] + rowpadding
+	w = img.size[1] + colpadding
 
 	table = subtables[0].copy()
-
 
 	gridSplit = []
 	idx = 0
@@ -341,8 +359,14 @@ def getGrid2img(subtables, results, imgfile):
 	gridSplit = np.array(gridSplit)
 	grid2img = unblockshaped(gridSplit, h, w)
 
-	grid2img = grid2img[:, :-7]      # HARD-CODED
-	print(grid2img.shape)
+        rowfix = -1 * rowpadding
+        colfix = -1 * colpadding
+        if (rowfix < 0 and colfix < 0):
+	    grid2img = grid2img[:rowfix, :colfix]
+        elif (rowfix < 0):
+            grid2img = grid2img[:rowfix, :]
+        else:
+            grid2img = grid2img[:, :colfix]
 
 	return grid2img
 
@@ -377,48 +401,52 @@ def getResultGeotiffs(entity2grids, entityGeotiffFilenames, regionFile):
 			band = raster.GetRasterBand(b + 1) # Gdal starts at 1, not 0
 			band.SetNoDataValue(0)
 
-                        #print(entity2grids[e][bands[b]])
-
 			band.WriteArray(entity2grids[e][bands[b]], 0, 0)
 		# Close
 		raster.FlushCache()
 
 
-# MAIN
-import pickle
-import numpy as np
-import pandas as pd
-from path import Path
-import re
-from statistics import median
+########
+# MAIN #
+########
 
 (options, args) = parseOption()
 
-# Need code to determine number of subgrids,
-# based on desired resolution
+nSubgrids = int(options.num_subgrids)
 
-nSubgrids = 100
-nEntities = 4
+entityBook = entityFitness.initEntitybookByFile(options.entitybook)
 
-imageFile = getSampleImageFile(options.directory)
-# Hard coded...
-entityGeotiffFilenames = [ \
-	"analyzed_T1.tiff",
-	"analyzed_T2.tiff",
-	"analyzed_T3.tiff",
-	"analyzed_T4.tiff" ]
+nEntities = len(entityBook["entities"])
+
+imageFile = getSampleImageFile(options.directory, options.prefix)
+im = Image.open (imageFile)
+
+rowpadding = 0
+colpadding = 0
+while ((im.size[0] + rowpadding) % nSubgrids != 0):
+    rowpadding = rowpadding + 1
+while ((im.size[1] + colpadding) % nSubgrids != 0):
+    colpadding = colpadding + 1
+
+
+entityGeotiffFilenames = []
+for i in range(nEntities):
+    entityGeotiffFilenames.append(options.outdirectory + "/" + options.outprefix \
+            + "_analysis_" + entityBook["entities"][i] + ".tiff")
 
 if (options.cachedirectory == ""):
-	(files, subtables) = getSubgridsByDirectory(options.directory, nSubgrids, nEntities)
-	for f in files:
-		drawGrids (f)
+	(files, subtables) = getSubgridsByDirectory(options.directory,
+            options.prefix, options.outdirectory, options.outprefix, nSubgrids,
+            nEntities, entityBook)
+	#for f in files:
+		#drawGrids (f)
 else:
-	subtables = loadSubgridsByDirectory(options.cachedirectory)
+	subtables = loadSubgridsByDirectory(options.cachedirectory, options.outprefix)
 
 # Calculate information on each grid region
 analyzed = analyzeSequence(subtables, nEntities)
 # Generate an image where each cell indexes a larger grid region
-grid2img = getGrid2img(subtables, analyzed, imageFile)
+grid2img = getGrid2img(subtables, analyzed, imageFile, rowpadding, colpadding)
 # Generate a set of grids based on the analysis results
 entity2grid = getResultGrids(analyzed, grid2img, nEntities)
 # Convert the entity2grids structure to a set of GDAL files
