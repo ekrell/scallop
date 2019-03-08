@@ -1,5 +1,20 @@
 #!/usr/bin/python
 
+import pickle
+import yaml
+import statistics
+import copy
+import time
+import os
+import sys
+import pandas   as pd
+import numpy    as np
+from   osgeo    import gdal
+from   optparse import OptionParser
+from   path     import Path
+import entityFitness
+
+
 def parseOption():
     parser = OptionParser()
     parser.add_option('-c', "--config",       dest    = "config",
@@ -9,12 +24,21 @@ def parseOption():
     parser.add_option('-e', "--entitiesFile", dest    = "entitiesFile",
         help = "Image (png) of entities.",    metavar = "ENTITIES_FILE")
     parser.add_option('-n', "--numTargets",   dest    = "numTargets",
-        help = "Number targets to select.",   metavar = "NUM_TARGETS",  default = 10)
+        help = "Number targets to select.",   metavar = "NUM_TARGETS",
+        default = 10, type = "int")
     parser.add_option('-o', "--outTable",     dest    = "outTable",
         help = "Output targets CSV.",         metavar = "OUT_TABLE")
     parser.add_option('-p', "--pickle",       dest    = "pickle",
         help = "Output pickle file.",         metavar = "PICKLE")
     return parser.parse_args()
+
+def grid2world (row, col, transform, nrow):
+    lon = transform[1] * col + transform[2] * row + transform[0]
+    lat = transform[4] * col + transform[5] * row + transform[3]
+    return (lat, lon)
+
+def getElemByGrid (row, col, grid):
+    return grid[row][col]
 
 def getArchiveByGrid (row, col, grid, transform):
     archivePoint = { "row" : row, "col" : col, "lat" : None, "lon" : None, "elem" : None }
@@ -29,7 +53,7 @@ def getArchiveByGrid (row, col, grid, transform):
 
 def makeDataDict(config, regionFile, entitiesFile):
     # initialize logbook
-    logbook = TargetFitness.initLogbookByFile(config)
+    logbook = entityFitness.initEntitybookByFile(config)
     logbook["rasters"] = [None] + [gdal.Open(g) for g in logbook["geotiffs"][1:]]
     logbook["grids"] = \
         [{ "density" : logbook["rasters"][e].GetRasterBand(1).ReadAsArray(),
@@ -39,7 +63,7 @@ def makeDataDict(config, regionFile, entitiesFile):
     logbook["region"]         = gdal.Open(regionFile)
     logbook["grid"]           = logbook["region"].GetRasterBand(1).ReadAsArray()
     logbook["regionEntities"] = gdal.Open(entitiesFile)
-    logbook["gridEntities"]   = logbook["regionEntities"].GetRasterBand(1).ReadAsArray()
+    logbook["gridEntities"]   = logbook["regionEntities"].GetRasterBand(1).ReadAsArray().T
     return logbook
 
 def makeParamsDict(maxDepth, maxCells, minCells):
@@ -272,6 +296,7 @@ def quadgrid(tree, data, params):
 
 def calcNodeReward(node, data, params):
     reward = 0
+
     for row in range(node["upper_coords_absolute"]["y"],
                      node["lower_coords_absolute"]["y"]):
         for col in range (node["upper_coords_absolute"]["x"],
@@ -383,20 +408,6 @@ def getTargetsTable(nodes, data, params):
     return targetsTable
 
 # MAIN
-import pickle
-import yaml
-import statistics
-import copy
-import time
-import os
-import sys
-import pandas   as pd
-import numpy    as np
-from   osgeo    import gdal
-from   optparse import OptionParser
-from   path     import Path
-import TargetFitness
-
 # Data types
 nodeTemplate = { 'upper_coords_absolute' : {'x' : float, 'y' : float},
                  'lower_coords_absolute' : {'x' : float, 'y' : float},
@@ -414,7 +425,11 @@ nodeTemplate = { 'upper_coords_absolute' : {'x' : float, 'y' : float},
 
 # Setup data and params
 data   = makeDataDict(Path(options.config), Path(options.regionFile), Path(options.entitiesFile))
-params = makeParamsDict(15, 100, 50)
+
+# These params control the quadtree behavior.
+# Currently built into the program,
+# until guidance can be provided to tune these by users.
+params = makeParamsDict(15, 150, 80)
 tree   = { "root" : None, "numNodes" : 0, "numLeaves" : 0, "depth" : 0 }
 
 # Run quadtree
@@ -427,6 +442,7 @@ tree["numLeaves"] = len(leaves)
 
 # Calc leaf reward
 getNodeListReward(leaves, data, params)
+
 # Rank leaves
 leavesRanked   = rankNodeList(leaves)
 # Filter leaves
@@ -454,7 +470,7 @@ if options.pickle is not None:
     }
     pickle.dump(pickled, open(options.pickle, "wb"))
 
-printNodeList(leavesFiltered[0:20])
+#printNodeList(leavesFiltered[0:20])
 print ("Completed with depth:", tree["depth"],
        "Number of nodes",       tree["numNodes"],
        "Number of leaves:",     tree["numLeaves"],

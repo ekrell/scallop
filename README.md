@@ -90,3 +90,24 @@ assigns reward to each cell in the discrete region grid.
     - Example: /test/data/output/R1_uniform_growth_gridstats_19.pickle 
 
 ## Target Region Selection (selectRegions.py)
+Uses the quadtree algorithm to select the top N variable-sized target regions,
+baesed on a given state of the entities at the region as well as the analysis over their history,
+computed by _assignReward.p_. Attempts to make large terrain-free, reward-rich regions.
+
+**Note:** this program is still being tuned to achieve desired target selection.
+
+        python selectRegions.py \
+            -c test/data/entityBook.yaml \                  # Entity book
+            -r test/data/R1.tif \                           # Region geotiff
+            -e test/data/entitiesMap_R1.png \               # Given entities state of region
+            -n 10 \                                         # Number of targets to select
+            -o test/data/output/R1_selectedTargets.csv \    # Output targets as CSV
+            -p test/data/output/R1_selectedTargets.pickle \ # Output targets as pickle
+
+### Outputs
+- **Selected Targets** (csv): List of selected targets: their center and extent. 
+- **Selected Targets** (pickle): More detailed pickle of above.
+
+
+
+
