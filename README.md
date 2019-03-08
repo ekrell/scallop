@@ -32,6 +32,15 @@ For example, _scallop_ may be dealing with subsurface seagrasses imaged by an un
 - [path.py](pypi.org/project/path.py)
 - [statistics](docs.python.org/3/library/statistics.html)
 
+**selectRegions.py**
+- [PyYAML](pyyaml.org)
+- [pandas](pandas.pydata.org)
+- [statistics](docs.python.org/3/library/statistics.html)
+- [GDAL](pypi.org/project/GDAL)
+- [path.py](pypi.org/project/path.py)
+- [NumPY](www.numpy.org)
+
+
 
 ## Input Data (and how to generate it)
 
